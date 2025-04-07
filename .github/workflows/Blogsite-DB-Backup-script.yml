@@ -1,4 +1,4 @@
-name: Backup Script
+name: Blogsite-DB-Backup-script
 
 on:
   schedule:
