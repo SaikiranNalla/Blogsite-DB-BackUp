@@ -12,9 +12,9 @@ from google.oauth2 import service_account
 # load_dotenv()
 
 # Database credentials
-DB_URL = os.environ.get('DATA_BASE_URL')
-DB_USER = os.environ.get('DATA_BASE_USER')
-DB_NAME = os.environ.get('DATA_BASE_NAME')
+DB_URL = os.environ.get('DB_URL')
+DB_USER = os.environ.get('DB_USER')
+DB_NAME = os.environ.get('DB_NAME')
 
 # Google Drive credentials
 SERVICE_ACCOUNT_KEY = os.environ['GOOGLE_SERVICE_ACCOUNT_KEY']
