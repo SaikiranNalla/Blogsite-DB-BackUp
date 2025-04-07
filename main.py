@@ -7,9 +7,9 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from google.oauth2 import service_account
 
-from dotenv import load_dotenv
-
-load_dotenv()
+# from dotenv import load_dotenv
+#
+# load_dotenv()
 
 # Database credentials
 DB_URL = os.environ.get('DATA_BASE_URL')
