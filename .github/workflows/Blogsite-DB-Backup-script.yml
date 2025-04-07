@@ -1,4 +1,4 @@
-name: DB Backup Script
+name: DB BackUp Script
 
 on:
   schedule:
