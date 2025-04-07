@@ -1,0 +1,32 @@
+name: Backup Script
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Daily at midnight
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.8'
+
+    - name: Install dependencies
+      run: |
+        pip install google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client
+
+    - name: Run backup script
+      run: |
+        python backup_script.py
+      env:
+        DB_URL: ${{ secrets.DB_URL }}
+        DB_USER: ${{ secrets.DB_USER }}
+        DB_NAME: ${{ secrets.DB_NAME }}
+        GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+        GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
