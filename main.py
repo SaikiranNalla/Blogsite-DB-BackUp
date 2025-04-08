@@ -11,6 +11,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import psycopg2
+
 from urllib.parse import urlparse, parse_qs
 
 def verify_db_url(url):
