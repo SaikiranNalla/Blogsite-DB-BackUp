@@ -3,6 +3,7 @@ name: DB BackUp Script
 on:
   schedule:
     - cron: '30 21 * * *'  # Daily at 9:30 PM UTC (3:00 AM IST)
+  workflow_dispatch:
 
 jobs:
   backup:
