@@ -2,6 +2,8 @@ import json
 import os
 import subprocess
 import datetime
+import gzip
+import shutil
 import psycopg2
 from urllib.parse import urlparse, parse_qs
 from googleapiclient.discovery import build
@@ -11,27 +13,26 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Get credentials and settings from environment variables (GitHub Actions secrets are automatically loaded)
+# Environment Variables from .env or platform secrets
 DB_URL = os.environ.get('DB_URL')
-# Optional fallback variables:
-DB_USER = os.environ.get('DB_USER')  # If not provided in the URL
+DB_USER = os.environ.get('DB_USER')  # Optional fallback
 DB_NAME = os.environ.get('DB_NAME')
-
 SERVICE_ACCOUNT_KEY = os.environ.get('GOOGLE_SERVICE_ACCOUNT_KEY')
 FOLDER_ID = os.environ.get('GOOGLE_DRIVE_FOLDER_ID')
-BACKUP_DIR = "/tmp/backups"
+# Use a common backup directory. On Linux, /tmp/backups works well; on Windows, we'll use C:\temp\backups.
+if os.name == 'nt':
+    BACKUP_DIR = os.environ.get('BACKUP_DIR', r"C:\temp\backups")
+else:
+    BACKUP_DIR = os.environ.get('BACKUP_DIR', "/tmp/backups")
 MAX_BACKUPS = 7
-
 
 def extract_db_credentials(db_url):
     """
-    Extracts DB credentials from a URL.
-
-    The URL is expected to be in one of these forms:
-      - postgres://username:password@hostname:port/dbname
-      - postgres://username@hostname:port/dbname?password=yourpassword
-
-    Returns a dict with keys: dbname, user, password, host, port.
+    Extracts DB credentials from the DB_URL.
+    Expected format:
+      postgres://username:password@hostname:port/dbname
+      Or: postgres://username@hostname:port/dbname?password=yourpassword
+    Returns a dictionary with keys: dbname, user, password, host, port.
     """
     parsed = urlparse(db_url)
     creds = {
@@ -40,20 +41,15 @@ def extract_db_credentials(db_url):
         "host": parsed.hostname,
         "port": parsed.port or 5432
     }
-    # Check for password in the URL's user info first
     if parsed.password:
         creds["password"] = parsed.password
     else:
-        # Try to extract password from query parameters
         query_params = parse_qs(parsed.query)
         if 'password' in query_params and query_params['password']:
             creds["password"] = query_params['password'][0]
-
     if "password" not in creds:
-        raise ValueError(
-            "No password found in the DB_URL. Make sure your DB_URL includes the password information, or provide a DB_PASSWORD separately.")
+        raise ValueError("No password found in the DB_URL. Please ensure it includes the password, or set it separately.")
     return creds
-
 
 def test_db_connection(creds):
     """
@@ -66,7 +62,6 @@ def test_db_connection(creds):
     except Exception as e:
         raise ValueError(f"Database connection failed: {e}")
 
-
 # Extract and test DB credentials
 db_creds = extract_db_credentials(DB_URL)
 test_db_connection(db_creds)
@@ -74,33 +69,42 @@ test_db_connection(db_creds)
 # Set the PGPASSWORD environment variable so that pg_dump can use it
 os.environ["PGPASSWORD"] = db_creds["password"]
 
-# For GitHub Actions, if pg_dump is installed on your runner,
-# you might need to add its directory to the PATH.
-# Uncomment and update the next line if needed.
-# os.environ["PATH"] += os.pathsep + "/usr/pgsql-14/bin"  # example for Linux runner
+# Determine the pg_dump executable:
+# - On Windows, you might need the full path (or provide it via an environment variable)
+# if os.name == 'nt':
+#     # Optionally allow PG_DUMP_PATH environment variable to override default path
+#     pg_dump_executable = os.environ.get('PG_DUMP_PATH', r"C:\Program Files\PostgreSQL\13\bin\pg_dump.exe")
+# else:
+#     pg_dump_executable = "pg_dump"  # On Linux, pg_dump is usually in the PATH.
 
-# Get current datetime to create a unique backup file name
-date = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+if os.name == 'nt':
+    pg_dump_executable = r"C:\Program Files\PostgreSQL\17\bin\pg_dump.exe"
+else:
+    pg_dump_executable = "pg_dump"
+
+
+# Create the backup directory if it doesn't exist
 os.makedirs(BACKUP_DIR, exist_ok=True)
-backup_file = f"{BACKUP_DIR}/backup-{date}.sql"
 
-# Run pg_dump.
-# Using "pg_dump" by itself assumes it's in the PATH.
-# If not, specify the full path to pg_dump (example for Linux or adjust accordingly).
-pg_dump_executable = "pg_dump"  # or specify full path like r"/usr/pgsql-14/bin/pg_dump"
+# Define backup file names based on current datetime
+timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+backup_file = os.path.join(BACKUP_DIR, f"backup-{timestamp}.sql")
+compressed_backup_file = backup_file + ".gz"
 
+# Run pg_dump to create a backup
 subprocess.run([
     pg_dump_executable,
     "-h", db_creds["host"],
     "-U", db_creds["user"],
     "-d", db_creds["dbname"],
-    "-F", "c",
+    "-F", "c",  # Custom format
     "-f", backup_file
 ], check=True)
 
-# Compress the backup file
-compressed_backup_file = f"{backup_file}.gz"
-subprocess.run(["gzip", backup_file], check=True)
+# Compress the backup file using Python's gzip module (cross-platform)
+with open(backup_file, 'rb') as f_in, gzip.open(compressed_backup_file, 'wb') as f_out:
+    shutil.copyfileobj(f_in, f_out)
+os.remove(backup_file)
 
 # Authenticate with Google Drive API using the service account key
 service_account_info = json.loads(SERVICE_ACCOUNT_KEY)
@@ -122,7 +126,7 @@ uploaded_file = drive_service.files().create(
 
 print(f"Backup uploaded to Google Drive: {uploaded_file.get('id')}")
 
-# Remove backups older than MAX_BACKUPS
+# Remove old backups exceeding MAX_BACKUPS
 backup_files = [f for f in os.listdir(BACKUP_DIR) if f.endswith(".sql.gz")]
 backup_files.sort(key=lambda f: os.path.getmtime(os.path.join(BACKUP_DIR, f)))
 while len(backup_files) > MAX_BACKUPS:
